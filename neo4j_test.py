@@ -67,19 +67,9 @@ def run_queries_and_analyze():
         ORDER BY avg_high_value_amount DESC;
         """,          # Query 2
         """
-        MATCH (c:Client)-[:DISP]->(d:Disp)-[:HAS_ACCOUNT]->(a:Account)
-        OPTIONAL MATCH (a)-[:HAS_TRANSACTION]->(t:Transaction)
-        OPTIONAL MATCH (a)-[:HAS_LOAN]->(l:Loan)
-        WHERE t.date >= date().year - 1 // Filter transactions in the last year
-        WITH c.client_id AS client_id,
-            SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS total_deposits,
-            SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END) AS total_withdrawals,
-            COUNT(DISTINCT l.loan_id) AS total_loans,
-            SUM(l.amount) AS total_loan_value,
-            COUNT(DISTINCT t.trans_id) AS total_transactions
-        RETURN client_id, total_deposits, total_withdrawals, total_loans, total_loan_value, total_transactions
-        ORDER BY total_deposits DESC
-        LIMIT 1000;
+        CREATE INDEX IF NOT EXISTS FOR (c:Client) ON (c.client_id);
+        CREATE INDEX IF NOT EXISTS FOR (t:Transaction) ON (t.date);
+        CREATE INDEX IF NOT EXISTS FOR (t:Transaction) ON (t.amount);
         """    # Query 3
     ]
     
