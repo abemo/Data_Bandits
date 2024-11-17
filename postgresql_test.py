@@ -6,6 +6,7 @@ from utils import display_results
 import config
 
 def run_queries_and_analyze():
+    print("===== PostgreSQL Query Performance Analysis =====")
     # Connection details
     db_config = {
         'dbname': config.POSTGRES_DBNAME,
@@ -19,13 +20,15 @@ def run_queries_and_analyze():
     queries = [
         """
         SELECT
-            a.account_id,
-            COUNT(DISTINCT t.trans_id) AS transaction_count,
-            SUM(t.amount) AS total_amount,
-            AVG(t.amount) AS avg_transaction_amount,
-            (SELECT MAX(amount)
-            FROM trans
-            WHERE account_id = a.account_id) AS max_transaction_amount
+        a.account_id,
+        COUNT(DISTINCT t.trans_id) AS transaction_count,
+        SUM(t.amount) AS total_amount,
+        AVG(t.amount) AS avg_transaction_amount,
+        (
+            SELECT MAX(t2.amount)
+            FROM trans t2
+            WHERE t2.account_id = a.account_id
+        ) AS max_transaction_amount
         FROM
             account a
         LEFT JOIN
@@ -45,6 +48,7 @@ def run_queries_and_analyze():
         LIMIT 100;
         """,  # Query 1
         """
+        WITH ranked_transactions AS (
         SELECT
         t.account_id,
         t.trans_id AS transaction_id,
@@ -85,31 +89,79 @@ def run_queries_and_analyze():
             avg_high_value_amount DESC;
         """, # Query 2
         """
-        SELECT
-        c.client_id,
-        SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS total_deposits,
-        SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END) AS total_withdrawals,
-        COUNT(DISTINCT l.loan_id) AS total_loans,
-        SUM(l.amount) AS total_loan_value,
-        COUNT(DISTINCT t.trans_id) AS total_transactions
-        FROM
+        WITH
+        daily_deposits AS (
+            SELECT
+            c.client_id,
+            t.date AS date,  -- Use the date field from the trans table
+            SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS daily_deposit,
+            SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END) AS daily_withdrawal
+            FROM
             client c
-        LEFT JOIN
-            disp d ON c.client_id = d.client_id
-        LEFT JOIN
-            account a ON d.account_id = a.account_id
-        LEFT JOIN
-            trans t ON a.account_id = t.account_id
-        LEFT JOIN
-            loan l ON a.account_id = l.account_id
-        WHERE
-            t.date >= CURRENT_DATE - INTERVAL '1 year'
-        GROUP BY
-            c.client_id
+            LEFT JOIN disp d ON c.client_id = d.client_id
+            LEFT JOIN account a ON d.account_id = a.account_id
+            LEFT JOIN trans t ON a.account_id = t.account_id
+            WHERE
+            t.date >= CURRENT_DATE - INTERVAL '1 year'  -- Use date here instead of timestamp
+            GROUP BY
+            c.client_id, t.date  -- Group by the date field from the trans table
+        ),
+        daily_loans AS (
+            SELECT
+            c.client_id,
+            l.date AS date,  -- Use the date field from the loan table (if exists)
+            SUM(l.amount) AS total_loan_value
+            FROM
+            client c
+            LEFT JOIN disp d ON c.client_id = d.client_id
+            LEFT JOIN account a ON d.account_id = a.account_id
+            LEFT JOIN loan l ON a.account_id = l.account_id
+            WHERE
+            l.date >= CURRENT_DATE - INTERVAL '1 year'  -- Use date here instead of timestamp
+            GROUP BY
+            c.client_id, l.date  -- Group by the date field from the loan table
+        ),
+        combined_data AS (
+            SELECT
+            dd.client_id,
+            dd.date,
+            dd.daily_deposit,
+            dd.daily_withdrawal,
+            COALESCE(dl.total_loan_value, 0) AS total_loan_value
+            FROM
+            daily_deposits dd
+            LEFT JOIN
+            daily_loans dl ON dd.client_id = dl.client_id AND dd.date = dl.date
+        ),
+        rolling_sums AS (
+            SELECT
+            client_id,
+            date,
+            daily_deposit,
+            daily_withdrawal,
+            total_loan_value,
+            SUM(daily_deposit) OVER (PARTITION BY client_id ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS rolling_deposit_30_days,
+            SUM(daily_withdrawal) OVER (PARTITION BY client_id ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS rolling_withdrawal_30_days,
+            SUM(total_loan_value) OVER (PARTITION BY client_id ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS rolling_loan_value_30_days
+            FROM
+            combined_data
+        )
+        SELECT
+        client_id,
+        date,
+        daily_deposit,
+        daily_withdrawal,
+        total_loan_value,
+        rolling_deposit_30_days,
+        rolling_withdrawal_30_days,
+        rolling_loan_value_30_days
+        FROM
+        rolling_sums
         ORDER BY
-            total_deposits DESC
+        client_id, date DESC
         LIMIT 1000;
         """  # Query 3
+        
     ]
     
     # Number of executions per query
