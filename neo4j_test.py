@@ -15,57 +15,33 @@ def run_queries_and_analyze():
     # Define three Cypher queries to execute
     queries = [
         """
-        MATCH (a:Account)
-        OPTIONAL MATCH (a)-[:HAS_TRANSACTION]->(t:Transaction)
-        WHERE t.date >= date() - duration('P1Y') AND t.date <= date()
-        WITH a, collect(t) AS transactions
-        WHERE size(transactions) > 100
-        MATCH (a)<-[:BELONGS_TO]-(d:Disposition)-[:OWNED_BY]->(c:Client)
-        WITH a, transactions, c,
-            size(collect(DISTINCT t.trans_id)) AS transaction_count,
-            reduce(sum = 0, t IN transactions | sum + t.amount) AS total_amount,
-            reduce(sum = 0.0, t IN transactions | sum + t.amount) / size(transactions) AS avg_transaction_amount,
-            reduce(max = 0, t IN transactions | CASE WHEN t.amount > max THEN t.amount ELSE max END) AS max_transaction_amount
+        MATCH (a:Account)-[:HAS_TRANSACTION]->(t:Transaction)
+        OPTIONAL MATCH (a)-[:HAS_DISP]->(d:Disp)-[:BELONGS_TO]->(c:Client)
+        WITH a, COUNT(DISTINCT t) AS transaction_count, 
+            SUM(toFloat(t.amount)) AS total_amount, 
+            AVG(toFloat(t.amount)) AS avg_transaction_amount,
+            MAX(toFloat(t.amount)) AS max_transaction_amount
+        WHERE transaction_count > 100
+        RETURN a.account_id, transaction_count, total_amount, avg_transaction_amount, max_transaction_amount
         ORDER BY total_amount DESC
-        LIMIT 100
-        RETURN
-            a.account_id,
-            transaction_count,
-            total_amount,
-            avg_transaction_amount,
-            max_transaction_amount;
-        """,         # Query 1
+        LIMIT 100;
+        """,# Query 1
         """
-        MATCH (c:Client)-[:HAS_DISPOSITION]->(d:Disposition {type: 'OWNER'})-[:BELONGS_TO]->(a:Account)-[:HAS_TRANSACTION]->(t:Transaction)
-        WHERE t.date >= date() - duration('P6M')
-        WITH a, t
-        ORDER BY a.account_id, t.date
-        // Now, let's calculate the moving average and rank
-        WITH a, collect(t) AS transactions
-        UNWIND range(0, size(transactions)-1) AS i
-        WITH a, transactions[i] AS t,
-            transactions[i].amount AS amount,
-            [j IN range(i-2, i) WHERE j >= 0 | transactions[j].amount] AS prev_amounts
-        WITH a, t, amount,
-            CASE WHEN size(prev_amounts) > 0 THEN (sum(prev_amounts) + amount) / (size(prev_amounts) + 1) ELSE amount END AS moving_avg,
-            size(collect(t)) OVER (a) AS total_trans,
-            rank(t.amount) OVER (a ORDER BY t.amount DESC) AS amount_rank
-        // Filter for top 10 transactions by amount and where amount > 1.5 * moving_avg
-        WHERE amount_rank <= 10 AND amount > moving_avg * 1.5
-        // Group by account and calculate required metrics
-        WITH a.account_id AS account_id,
-            count(*) AS high_value_transactions,
-            avg(amount) AS avg_high_value_amount,
-            max(moving_avg) AS max_moving_avg
-        WHERE high_value_transactions > 5
-        // Order and return results
-        RETURN
-            account_id,
-            high_value_transactions,
-            avg_high_value_amount,
-            max_moving_avg
-        ORDER BY avg_high_value_amount DESC;
-        """,          # Query 2
+        MATCH (a:Account)-[:HAS_TRANSACTION]->(t:Transaction)
+        WITH a, t, toFloat(t.amount) AS trans_amount
+        WITH a, COLLECT(trans_amount) AS transactions
+        WITH a, transactions, 
+            REDUCE(sum = 0.0, amount IN transactions | sum + amount) AS total_amount,
+            REDUCE(count = 0, amount IN transactions | count + 1) AS total_transactions
+        WITH a, total_amount / total_transactions AS avg_amount, transactions
+        UNWIND transactions AS trans_amount
+        WITH a, trans_amount, avg_amount
+        WHERE trans_amount > 1.5 * avg_amount
+        WITH a, COUNT(trans_amount) AS high_value_count, AVG(trans_amount) AS high_value_avg, MAX(trans_amount) AS max_moving_avg
+        WHERE high_value_count >= 6
+        RETURN a.account_id AS account_id, high_value_count, high_value_avg, max_moving_avg
+        ORDER BY high_value_avg DESC
+        """, # Query 2
         """
         MATCH (c:Client)-[:HAS_DISPOSITION]->(a:Account)-[:HAS_TRANSACTION]->(t:Transaction)
         WITH c.client_id AS client_id, 
@@ -75,7 +51,7 @@ def run_queries_and_analyze():
             sum(toInteger(t.amount)) AS total_amount
         RETURN client_id, year, week, earliest_transaction_date, total_amount
         ORDER BY year DESC, week DESC, earliest_transaction_date DESC;
-        """    # Query 3
+        """ # Query 3
     ]
     
     # Number of executions per query
