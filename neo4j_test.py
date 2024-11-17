@@ -67,9 +67,14 @@ def run_queries_and_analyze():
         ORDER BY avg_high_value_amount DESC;
         """,          # Query 2
         """
-        CREATE INDEX IF NOT EXISTS FOR (c:Client) ON (c.client_id);
-        CREATE INDEX IF NOT EXISTS FOR (t:Transaction) ON (t.date);
-        CREATE INDEX IF NOT EXISTS FOR (t:Transaction) ON (t.amount);
+        MATCH (c:Client)-[:HAS_DISPOSITION]->(a:Account)-[:HAS_TRANSACTION]->(t:Transaction)
+        WITH c.client_id AS client_id, 
+            toInteger(date(t.date).year) AS year, 
+            toInteger(date(t.date).week) AS week, 
+            min(t.date) AS earliest_transaction_date, 
+            sum(toInteger(t.amount)) AS total_amount
+        RETURN client_id, year, week, earliest_transaction_date, total_amount
+        ORDER BY year DESC, week DESC, earliest_transaction_date DESC;
         """    # Query 3
     ]
     
