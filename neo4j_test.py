@@ -5,6 +5,7 @@ from utils import display_results
 import config
 
 def run_queries_and_analyze():
+    print("===== Neo4j Query Performance Analysis =====")
     # Connection details
     neo4j_config = {
         'uri': config.NEO4J_URI,
@@ -50,7 +51,8 @@ def run_queries_and_analyze():
             min(t.date) AS earliest_transaction_date, 
             sum(toInteger(t.amount)) AS total_amount
         RETURN client_id, year, week, earliest_transaction_date, total_amount
-        ORDER BY year DESC, week DESC, earliest_transaction_date DESC;
+        ORDER BY year DESC, week DESC, earliest_transaction_date DESC;        
+
         """ # Query 3
     ]
     
@@ -81,7 +83,7 @@ def run_queries_and_analyze():
             max_time = max(times)
             
             # Append results
-            results.append((query, avg_time, std_dev, max_time))
+            results.append((query, avg_time, std_dev, max_time, times))
     
     except Exception as e:
         print(f"Error occurred: {e}")
