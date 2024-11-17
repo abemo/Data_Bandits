@@ -14,9 +14,73 @@ def run_queries_and_analyze():
     
     # Define three Cypher queries to execute
     queries = [
-        "MATCH (n) RETURN n LIMIT 10",         # Query 1: Return nodes
-        "MATCH (n) RETURN COUNT(n)",          # Query 2: Count nodes
-        "MATCH (n) RETURN AVG(n.property)"    # Query 3: Average property value
+        """
+        MATCH (a:Account)
+        OPTIONAL MATCH (a)-[:HAS_TRANSACTION]->(t:Transaction)
+        WHERE t.date >= date() - duration('P1Y') AND t.date <= date()
+        WITH a, collect(t) AS transactions
+        WHERE size(transactions) > 100
+        MATCH (a)<-[:BELONGS_TO]-(d:Disposition)-[:OWNED_BY]->(c:Client)
+        WITH a, transactions, c,
+            size(collect(DISTINCT t.trans_id)) AS transaction_count,
+            reduce(sum = 0, t IN transactions | sum + t.amount) AS total_amount,
+            reduce(sum = 0.0, t IN transactions | sum + t.amount) / size(transactions) AS avg_transaction_amount,
+            reduce(max = 0, t IN transactions | CASE WHEN t.amount > max THEN t.amount ELSE max END) AS max_transaction_amount
+        ORDER BY total_amount DESC
+        LIMIT 100
+        RETURN
+            a.account_id,
+            transaction_count,
+            total_amount,
+            avg_transaction_amount,
+            max_transaction_amount;
+        """,         # Query 1
+        """
+        MATCH (c:Client)-[:HAS_DISPOSITION]->(d:Disposition {type: 'OWNER'})-[:BELONGS_TO]->(a:Account)-[:HAS_TRANSACTION]->(t:Transaction)
+        WHERE t.date >= date() - duration('P6M')
+        WITH a, t
+        ORDER BY a.account_id, t.date
+        // Now, let's calculate the moving average and rank
+        WITH a, collect(t) AS transactions
+        UNWIND range(0, size(transactions)-1) AS i
+        WITH a, transactions[i] AS t,
+            transactions[i].amount AS amount,
+            [j IN range(i-2, i) WHERE j >= 0 | transactions[j].amount] AS prev_amounts
+        WITH a, t, amount,
+            CASE WHEN size(prev_amounts) > 0 THEN (sum(prev_amounts) + amount) / (size(prev_amounts) + 1) ELSE amount END AS moving_avg,
+            size(collect(t)) OVER (a) AS total_trans,
+            rank(t.amount) OVER (a ORDER BY t.amount DESC) AS amount_rank
+        // Filter for top 10 transactions by amount and where amount > 1.5 * moving_avg
+        WHERE amount_rank <= 10 AND amount > moving_avg * 1.5
+        // Group by account and calculate required metrics
+        WITH a.account_id AS account_id,
+            count(*) AS high_value_transactions,
+            avg(amount) AS avg_high_value_amount,
+            max(moving_avg) AS max_moving_avg
+        WHERE high_value_transactions > 5
+        // Order and return results
+        RETURN
+            account_id,
+            high_value_transactions,
+            avg_high_value_amount,
+            max_moving_avg
+        ORDER BY avg_high_value_amount DESC;
+        """,          # Query 2
+        """
+        MATCH (c:Client)-[:DISP]->(d:Disp)-[:HAS_ACCOUNT]->(a:Account)
+        OPTIONAL MATCH (a)-[:HAS_TRANSACTION]->(t:Transaction)
+        OPTIONAL MATCH (a)-[:HAS_LOAN]->(l:Loan)
+        WHERE t.date >= date().year - 1 // Filter transactions in the last year
+        WITH c.client_id AS client_id,
+            SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS total_deposits,
+            SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END) AS total_withdrawals,
+            COUNT(DISTINCT l.loan_id) AS total_loans,
+            SUM(l.amount) AS total_loan_value,
+            COUNT(DISTINCT t.trans_id) AS total_transactions
+        RETURN client_id, total_deposits, total_withdrawals, total_loans, total_loan_value, total_transactions
+        ORDER BY total_deposits DESC
+        LIMIT 1000;
+        """    # Query 3
     ]
     
     # Number of executions per query
