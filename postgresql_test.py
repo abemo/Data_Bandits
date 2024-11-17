@@ -15,31 +15,7 @@ def run_queries_and_analyze():
     
     # Define three queries to execute
     queries = [
-        """SELECT
-            a.account_id,
-            COUNT(DISTINCT t.trans_id) AS transaction_count,
-            SUM(t.amount) AS total_amount,
-            AVG(t.amount) AS avg_transaction_amount,
-            (SELECT MAX(amount)
-            FROM trans
-            WHERE account_id = a.account_id) AS max_transaction_amount
-        FROM
-            account a
-        LEFT JOIN
-            trans t ON a.account_id = t.account_id
-        LEFT JOIN
-            disp d ON a.account_id = d.account_id
-        LEFT JOIN
-            client c ON d.client_id = c.client_id
-        WHERE
-            t.date BETWEEN CURRENT_DATE - INTERVAL '1 year' AND CURRENT_DATE
-        GROUP BY
-            a.account_id
-        HAVING
-            COUNT(DISTINCT t.trans_id) > 100
-        ORDER BY
-            total_amount DESC
-        LIMIT 100;""",  # Query 1
+        "SELECT * FROM trans",  # Query 1
     ]
     
     # Number of executions per query
