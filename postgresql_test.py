@@ -15,9 +15,31 @@ def run_queries_and_analyze():
     
     # Define three queries to execute
     queries = [
-        "SELECT * FROM card LIMIT 10",  # Query 1
-        "SELECT COUNT(*) FROM trans",    # Query 2
-        "SELECT AVG(amount) FROM loan"  # Query 3
+        """SELECT
+            a.account_id,
+            COUNT(DISTINCT t.trans_id) AS transaction_count,
+            SUM(t.amount) AS total_amount,
+            AVG(t.amount) AS avg_transaction_amount,
+            (SELECT MAX(amount)
+            FROM trans
+            WHERE account_id = a.account_id) AS max_transaction_amount
+        FROM
+            account a
+        LEFT JOIN
+            trans t ON a.account_id = t.account_id
+        LEFT JOIN
+            disp d ON a.account_id = d.account_id
+        LEFT JOIN
+            client c ON d.client_id = c.client_id
+        WHERE
+            t.date BETWEEN CURRENT_DATE - INTERVAL '1 year' AND CURRENT_DATE
+        GROUP BY
+            a.account_id
+        HAVING
+            COUNT(DISTINCT t.trans_id) > 100
+        ORDER BY
+            total_amount DESC
+        LIMIT 100;""",  # Query 1
     ]
     
     # Number of executions per query
@@ -70,6 +92,8 @@ def display_results(results):
     table.align["Query"] = "l"
 
     for query, avg_time, std_dev, max_time in results:
+        if len(query) > 50:
+            query = query[:50] + "..."
         table.add_row([query, f"{avg_time:.6f}", f"{std_dev:.6f}", f"{max_time:.6f}"])
     
     print("\nQuery Performance Metrics:")
