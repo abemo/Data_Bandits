@@ -1,14 +1,15 @@
 from neo4j import GraphDatabase
 import time
 import statistics
-from prettytable import PrettyTable
+from utils import display_results
+import config
 
 def run_queries_and_analyze():
     # Connection details
     neo4j_config = {
-        'uri': "bolt://localhost:7687",  # Change if using a different host or port
-        'user': "neo4j",
-        'password': "neo4j_password"
+        'uri': config.NEO4J_URI,
+        'user': config.NEO4J_USER,
+        'password': config.NEO4J_PASSWORD
     }
     
     # Define three Cypher queries to execute
@@ -19,7 +20,7 @@ def run_queries_and_analyze():
     ]
     
     # Number of executions per query
-    iterations = 1000
+    iterations = config.NUMBER_ITERATIONS
     results = []
 
     try:
@@ -59,19 +60,7 @@ def run_queries_and_analyze():
     display_results(results)
 
 
-def display_results(results):
-    # Create and configure a table
-    table = PrettyTable()
-    table.field_names = ["Query", "Average Time (s)", "Standard Deviation (s)", "Maximum Time (s)"]
-    table.align["Query"] = "l"
 
-    for query, avg_time, std_dev, max_time in results:
-        if len(query) > 50:
-            query = query[:50] + "..."
-        table.add_row([query, f"{avg_time:.6f}", f"{std_dev:.6f}", f"{max_time:.6f}"])
-    
-    print("\nQuery Performance Metrics:")
-    print(table)
 
 
 if __name__ == "__main__":
