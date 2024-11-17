@@ -37,8 +37,6 @@ def run_queries_and_analyze():
             disp d ON a.account_id = d.account_id
         LEFT JOIN
             client c ON d.client_id = c.client_id
-        WHERE
-            t.date BETWEEN CURRENT_DATE - INTERVAL '1 year' AND CURRENT_DATE
         GROUP BY
             a.account_id
         HAVING
@@ -69,7 +67,6 @@ def run_queries_and_analyze():
             client c ON d.client_id = c.client_id
         WHERE
             d.type = 'OWNER'
-            AND t.date >= CURRENT_DATE - INTERVAL '6 months'
         )
         SELECT
             rt.account_id,
@@ -89,79 +86,22 @@ def run_queries_and_analyze():
             avg_high_value_amount DESC;
         """, # Query 2
         """
-        WITH
-        daily_deposits AS (
-            SELECT
-            c.client_id,
-            t.date AS date,  -- Use the date field from the trans table
-            SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS daily_deposit,
-            SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END) AS daily_withdrawal
-            FROM
-            client c
-            LEFT JOIN disp d ON c.client_id = d.client_id
-            LEFT JOIN account a ON d.account_id = a.account_id
-            LEFT JOIN trans t ON a.account_id = t.account_id
-            WHERE
-            t.date >= CURRENT_DATE - INTERVAL '1 year'  -- Use date here instead of timestamp
-            GROUP BY
-            c.client_id, t.date  -- Group by the date field from the trans table
-        ),
-        daily_loans AS (
-            SELECT
-            c.client_id,
-            l.date AS date,  -- Use the date field from the loan table (if exists)
-            SUM(l.amount) AS total_loan_value
-            FROM
-            client c
-            LEFT JOIN disp d ON c.client_id = d.client_id
-            LEFT JOIN account a ON d.account_id = a.account_id
-            LEFT JOIN loan l ON a.account_id = l.account_id
-            WHERE
-            l.date >= CURRENT_DATE - INTERVAL '1 year'  -- Use date here instead of timestamp
-            GROUP BY
-            c.client_id, l.date  -- Group by the date field from the loan table
-        ),
-        combined_data AS (
-            SELECT
-            dd.client_id,
-            dd.date,
-            dd.daily_deposit,
-            dd.daily_withdrawal,
-            COALESCE(dl.total_loan_value, 0) AS total_loan_value
-            FROM
-            daily_deposits dd
-            LEFT JOIN
-            daily_loans dl ON dd.client_id = dl.client_id AND dd.date = dl.date
-        ),
-        rolling_sums AS (
-            SELECT
-            client_id,
-            date,
-            daily_deposit,
-            daily_withdrawal,
-            total_loan_value,
-            SUM(daily_deposit) OVER (PARTITION BY client_id ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS rolling_deposit_30_days,
-            SUM(daily_withdrawal) OVER (PARTITION BY client_id ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS rolling_withdrawal_30_days,
-            SUM(total_loan_value) OVER (PARTITION BY client_id ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS rolling_loan_value_30_days
-            FROM
-            combined_data
-        )
         SELECT
-        client_id,
-        date,
-        daily_deposit,
-        daily_withdrawal,
-        total_loan_value,
-        rolling_deposit_30_days,
-        rolling_withdrawal_30_days,
-        rolling_loan_value_30_days
+        c.client_id,
+        MIN(t.date) AS transaction_date,  -- Get the earliest transaction date for the week
+        SUM(t.amount) AS total_amount,
+        EXTRACT(week FROM t.date) AS week_of_year,
+        EXTRACT(year FROM t.date) AS year
         FROM
-        rolling_sums
+        client c
+        LEFT JOIN disp d ON c.client_id = d.client_id
+        LEFT JOIN account a ON d.account_id = a.account_id
+        LEFT JOIN trans t ON a.account_id = t.account_id
+        GROUP BY
+        c.client_id, EXTRACT(week FROM t.date), EXTRACT(year FROM t.date)
         ORDER BY
-        client_id, date DESC
-        LIMIT 1000;
-        """  # Query 3
-        
+        year DESC, week_of_year DESC, transaction_date DESC;
+        """  # Query 3    
     ]
     
     # Number of executions per query
