@@ -75,7 +75,7 @@ def run_queries_and_analyze():
             max_time = max(times)
             
             # Append results
-            results.append((query, avg_time, std_dev, max_time))
+            results.append((query, avg_time, std_dev, max_time, times))
     
     except Exception as e:
         print(f"Error occurred: {e}")
